@@ -1,0 +1,22 @@
+name: deriv_explore_markets
+description: A professional Flutter package for displaying real-time market data from Deriv API with customizable themes and comprehensive market categorization.
+version: 0.1.0
+homepage: https://github.com/ahrar-deriv/deriv_explore_markets
+repository: https://github.com/ahrar-deriv/deriv_explore_markets
+issue_tracker: https://github.com/ahrar-deriv/deriv_explore_markets/issues
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+  flutter: '>=3.35.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  web_socket_channel: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  mocktail: ^1.0.4
+  very_good_analysis: ^10.0.0
