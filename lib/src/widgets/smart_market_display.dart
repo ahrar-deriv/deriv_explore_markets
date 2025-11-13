@@ -58,7 +58,7 @@ class SmartMarketDisplay extends StatefulWidget {
     this.onSymbolTap,
     this.loadingBuilder,
     this.errorBuilder,
-    this.initialCategory = 0,
+    this.initialCategory = 1,
     this.showCategoryTabs = true,
   });
 
@@ -90,7 +90,7 @@ class SmartMarketDisplay extends StatefulWidget {
 
   /// Initial category index to display.
   ///
-  /// 0=Forex, 1=Stock indices, 2=Crypto, 3=Commodities
+  /// 0=All, 1=Forex, 2=Stock indices, 3=Crypto, 4=Commodities
   final int initialCategory;
 
   /// Whether to show category tabs.
@@ -113,7 +113,11 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
   int _selectedMainTab = 0;
   int _selectedSubTab = 0;
 
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
   final List<String> _mainCategories = [
+    'All',
     'Forex',
     'Stock indices',
     'Crypto',
@@ -139,9 +143,9 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
 
     _service = DerivExploreMarkets.websocketService;
 
-    _selectedMainTab = widget.initialCategory.clamp(0, 3);
+    _selectedMainTab = widget.initialCategory.clamp(0, 4);
     _mainTabController = TabController(
-      length: 4,
+      length: 5,
       vsync: this,
       initialIndex: _selectedMainTab,
     );
@@ -155,6 +159,7 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
 
   @override
   void dispose() {
+    _searchController.dispose();
     _mainTabController.removeListener(_onMainTabChanged);
     _subTabController.removeListener(_onSubTabChanged);
     _mainTabController.dispose();
@@ -237,6 +242,9 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
 
     switch (_selectedMainTab) {
       case 0:
+        symbols = _service.getAllSymbols();
+
+      case 1:
         if (_selectedSubTab == 0) {
           symbols = _service.getSymbolsByMarket('forex');
         } else if (_selectedSubTab == 1) {
@@ -252,22 +260,22 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
               .toList();
         }
 
-      case 1:
+      case 2:
         symbols = _service.getSymbolsByMarket('indices');
 
-      case 2:
+      case 3:
         symbols = _service.getSymbolsByMarket('cryptocurrency');
 
-      case 3:
+      case 4:
         symbols = _service.getSymbolsByMarket('commodities');
     }
 
-    _currentSymbols = symbols;
+    _currentSymbols = _getFilteredSymbols(symbols);
 
-    if (symbols.isNotEmpty) {
+    if (_currentSymbols.isNotEmpty) {
       await _service.forgetAllTicks();
       await Future<void>.delayed(const Duration(milliseconds: 100));
-      await _service.subscribeToTicks(symbols);
+      await _service.subscribeToTicks(_currentSymbols);
     }
 
     setState(() {
@@ -275,10 +283,28 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
     });
   }
 
+  void _onSearchChanged(String query) {
+    setState(() {
+      _searchQuery = query.toLowerCase();
+    });
+    unawaited(_subscribeToCurrentSelection());
+  }
+
+  List<String> _getFilteredSymbols(List<String> symbols) {
+    if (_searchQuery.isEmpty) {
+      return symbols;
+    }
+
+    return symbols.where((symbol) {
+      final activeSymbol = _service.getActiveSymbol(symbol);
+      final displayName = (activeSymbol?.displayName ?? symbol).toLowerCase();
+      return displayName.contains(_searchQuery);
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final effectiveTheme =
-        widget.theme ??
+    final effectiveTheme = widget.theme ??
         DerivExploreMarkets.getDefaultTheme(context) ??
         DefaultMarketDisplayTheme.light(context);
 
@@ -290,6 +316,55 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
       ),
       child: Column(
         children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: effectiveTheme.primaryBackground,
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search symbols...',
+                hintStyle: TextStyle(color: effectiveTheme.secondaryText),
+                prefixIcon: Icon(
+                  Icons.search,
+                  color: effectiveTheme.secondaryText,
+                ),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: Icon(
+                          Icons.clear,
+                          color: effectiveTheme.secondaryText,
+                        ),
+                        onPressed: () {
+                          _searchController.clear();
+                          _onSearchChanged('');
+                        },
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: effectiveTheme.alternate),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: effectiveTheme.alternate),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: effectiveTheme.primaryColor,
+                    width: 2,
+                  ),
+                ),
+                filled: true,
+                fillColor: effectiveTheme.secondaryBackground,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+              onChanged: _onSearchChanged,
+            ),
+          ),
           if (widget.showCategoryTabs)
             Container(
               color: effectiveTheme.primaryBackground,
@@ -319,7 +394,7 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
                 ),
               ),
             ),
-          if (_selectedMainTab == 0 && widget.showCategoryTabs)
+          if (_selectedMainTab == 1 && widget.showCategoryTabs)
             Container(
               color: effectiveTheme.secondaryBackground,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -390,7 +465,9 @@ class _SmartMarketDisplayState extends State<SmartMarketDisplay>
     if (_currentSymbols.isEmpty) {
       return Center(
         child: Text(
-          'No symbols available for this category',
+          _searchQuery.isNotEmpty
+              ? 'No symbols found matching "$_searchQuery"'
+              : 'No symbols available for this category',
           style: theme.bodyMedium.copyWith(color: theme.primaryText),
         ),
       );
